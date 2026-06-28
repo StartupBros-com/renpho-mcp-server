@@ -9,12 +9,14 @@ export function loadConfig(): RenphoConfig {
   const password = process.env.RENPHO_PASSWORD;
 
   if (!email || !password) {
-    throw new Error('RENPHO_EMAIL and RENPHO_PASSWORD environment variables are required');
+    throw new Error(
+      "RENPHO_EMAIL and RENPHO_PASSWORD environment variables are required",
+    );
   }
 
   return {
     email,
     password,
-    logLevel: process.env.LOG_LEVEL || 'info'
+    logLevel: process.env.LOG_LEVEL || "info",
   };
 }
