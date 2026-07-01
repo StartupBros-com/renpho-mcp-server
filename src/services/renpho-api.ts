@@ -12,6 +12,7 @@ import {
 
 const API_BASE = 'https://cloud.renpho.com';
 const ENCRYPTION_SECRET = 'ed*wijdi$h6fe3ew';
+const CIPHER_KEY = Buffer.from(ENCRYPTION_SECRET, 'utf8');
 const DEFAULT_PAGE_SIZE = 200;
 const MAX_MEASUREMENT_SCAN = 1000;
 
@@ -64,19 +65,19 @@ export class RenphoApiService {
   }
 
   private encryptAES(content: string): string {
-    const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(ENCRYPTION_SECRET, 'utf8'), null);
+    const cipher = crypto.createCipheriv('aes-128-ecb', CIPHER_KEY, null);
     let encrypted = cipher.update(content, 'utf8', 'base64');
     encrypted += cipher.final('base64');
     return encrypted;
   }
 
   private encryptEmptyBytes(): string {
-    const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(ENCRYPTION_SECRET, 'utf8'), null);
+    const cipher = crypto.createCipheriv('aes-128-ecb', CIPHER_KEY, null);
     return Buffer.concat([cipher.update(Buffer.from([])), cipher.final()]).toString('base64');
   }
 
   private decryptAES(encryptedContent: string): string {
-    const decipher = crypto.createDecipheriv('aes-128-ecb', Buffer.from(ENCRYPTION_SECRET, 'utf8'), null);
+    const decipher = crypto.createDecipheriv('aes-128-ecb', CIPHER_KEY, null);
     let decrypted = decipher.update(encryptedContent, 'base64', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
@@ -100,8 +101,21 @@ export class RenphoApiService {
     return Array.from(matches, match => match[1].split(','));
   }
 
-  private unique<T>(items: T[]): T[] {
-    return [...new Set(items)];
+  private pickIdString(extracted: string[], index: number, rawValue: unknown): string | undefined {
+    return extracted[index] || (rawValue != null ? String(rawValue) : undefined);
+  }
+
+  private buildMeasurementsFromRaw(
+    rawResults: Array<Array<Record<string, unknown>>>,
+    lastAt: number | undefined,
+    limit: number
+  ): RenphoMeasurement[] {
+    let measurements = this.dedupeAndSortMeasurements(
+      rawResults.flat().map(entry => this.mapMeasurement(entry as Record<string, any>))
+    );
+    if (lastAt) measurements = measurements.filter(m => m.time_stamp >= lastAt);
+    if (measurements.length > limit) measurements = measurements.slice(0, limit);
+    return measurements;
   }
 
   invalidateCaches(): void {
@@ -250,7 +264,7 @@ export class RenphoApiService {
     const session: CachedSession = {
       ...temporarySession,
       scaleTables,
-      scaleUserIds: this.unique(scaleTables.flatMap(scale => scale.user_ids))
+      scaleUserIds: [...new Set(scaleTables.flatMap(scale => scale.user_ids))]
     };
 
     this.sessionCache = session;
@@ -272,7 +286,6 @@ export class RenphoApiService {
     );
 
     const members = Array.isArray(familyMembers) ? familyMembers : (familyMembers.list || []);
-
     return members.map(member => ({
       id: member.id ? String(member.id) : '',
       email: member.email || '',
@@ -330,9 +343,9 @@ export class RenphoApiService {
 
     return parsed.map((entry, index) => ({
       ...entry,
-      __idString: ids[index] || (entry.id != null ? String(entry.id) : undefined),
-      __bUserIdString: boundUserIds[index] || (entry.bUserId != null ? String(entry.bUserId) : undefined),
-      __subUserIdString: scaleUserIds[index] || (entry.subUserId != null ? String(entry.subUserId) : undefined)
+      __idString: this.pickIdString(ids, index, entry.id),
+      __bUserIdString: this.pickIdString(boundUserIds, index, entry.bUserId),
+      __subUserIdString: this.pickIdString(scaleUserIds, index, entry.subUserId)
     }));
   }
 
@@ -432,10 +445,6 @@ export class RenphoApiService {
       return directlyBound;
     }
 
-    if (session.scaleUserIds.length === 1) {
-      return measurements.filter(measurement => measurement.scale_user_id === session.scaleUserIds[0]);
-    }
-
     return measurements.filter(measurement => measurement.scale_user_id === session.scaleUserIds[0]);
   }
 
@@ -454,16 +463,7 @@ export class RenphoApiService {
       )
     );
 
-    let measurements = this.dedupeAndSortMeasurements(rawResults.flat().map(entry => this.mapMeasurement(entry)));
-
-    if (lastAt) {
-      measurements = measurements.filter(measurement => measurement.time_stamp >= lastAt);
-    }
-
-    if (measurements.length > limit) {
-      measurements = measurements.slice(0, limit);
-    }
-
+    const measurements = this.buildMeasurementsFromRaw(rawResults, lastAt, limit);
     this.measurementCache.set(cacheKey, measurements);
     return measurements;
   }
@@ -498,16 +498,7 @@ export class RenphoApiService {
       )
     );
 
-    let measurements = this.dedupeAndSortMeasurements(rawResults.flat().map(entry => this.mapMeasurement(entry)));
-
-    if (lastAt) {
-      measurements = measurements.filter(measurement => measurement.time_stamp >= lastAt);
-    }
-
-    if (measurements.length > limit) {
-      measurements = measurements.slice(0, limit);
-    }
-
+    const measurements = this.buildMeasurementsFromRaw(rawResults, lastAt, limit);
     this.measurementCache.set(cacheKey, measurements);
     return measurements;
   }
@@ -621,19 +612,10 @@ export class RenphoApiService {
 
   private classifyBodyFat(bodyfat?: number, isMale: boolean = true): string {
     if (!bodyfat) return 'Unknown';
-    if (isMale) {
-      if (bodyfat < 6) return 'Essential';
-      if (bodyfat < 14) return 'Athletes';
-      if (bodyfat < 18) return 'Fitness';
-      if (bodyfat < 25) return 'Average';
-      return 'Obese';
-    } else {
-      if (bodyfat < 14) return 'Essential';
-      if (bodyfat < 21) return 'Athletes';
-      if (bodyfat < 25) return 'Fitness';
-      if (bodyfat < 32) return 'Average';
-      return 'Obese';
-    }
+    const tiers: [number, string][] = isMale
+      ? [[6, 'Essential'], [14, 'Athletes'], [18, 'Fitness'], [25, 'Average']]
+      : [[14, 'Essential'], [21, 'Athletes'], [25, 'Fitness'], [32, 'Average']];
+    return tiers.find(([max]) => bodyfat < max)?.[1] ?? 'Obese';
   }
 
   private classifyVisceralFat(level?: number): string {
