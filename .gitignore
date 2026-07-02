@@ -33,3 +33,4 @@ coverage/
 
 # Claude Code parallel worktrees
 .claude/worktrees/
+.token-eater/
