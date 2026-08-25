@@ -116,10 +116,28 @@ export interface RenphoBodyComposition {
   };
 }
 
+export interface RenphoDeviceCategory {
+  category: string;
+  handled: boolean;
+  has_data: boolean;
+  detail: string;
+}
+
+export interface RenphoMeasurementDevice {
+  internal_model?: string;
+  scale_name?: string;
+  mac?: string;
+  measurement_count: number;
+  latest_time_stamp: number;
+}
+
 export interface RenphoSyncDiagnostics {
   user: RenphoUser;
   family_members: RenphoUser[];
   scale_tables: RenphoScaleTable[];
+  device_categories: RenphoDeviceCategory[];
+  unhandled_device_categories_with_data: RenphoDeviceCategory[];
+  measurement_devices: RenphoMeasurementDevice[];
   visible_latest_measurement: RenphoMeasurement | null;
   latest_associated_measurement: RenphoMeasurement | null;
   hidden_associated_measurements: RenphoMeasurement[];
