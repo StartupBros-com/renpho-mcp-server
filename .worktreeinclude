@@ -1,0 +1,5 @@
+# Gitignored files auto-copied into fresh worktrees so agents do not fail on missing config.
+# gitignore syntax. Add any other runtime config a worktree agent needs.
+.env
+.env.*
+.env.local

@@ -30,3 +30,6 @@ yarn-error.log*
 
 # Test coverage
 coverage/
+
+# Claude Code parallel worktrees
+.claude/worktrees/
