@@ -145,3 +145,103 @@ test('fetchMeasurementsForTable pulls newest pages first when filtering recent t
   assert.deepEqual(pagesVisited, [3]);
   assert.deepEqual(results.map((entry: any) => entry.id), [3, 4]);
 });
+
+test('summarizeDeviceCategories reports every raw category with handled/data flags', async () => {
+  const { summarizeDeviceCategories } = await import('../src/services/renpho-api.js');
+
+  const categories = summarizeDeviceCategories({
+    scale: [
+      { userIds: [1], count: 387, tableName: 'measurements_info_16' },
+      { userIds: [2], count: 12, tableName: 'measurements_info_19' }
+    ],
+    girth: 0,
+    stepCount: 4,
+    treadmill: { total: 0, hasMileageUnitSet: false },
+    bodyScan: [{ userIds: [3], count: 9, tableName: 'morpho_measurements_2' }]
+  });
+
+  const byName = new Map(categories.map(category => [category.category, category]));
+
+  assert.equal(categories.length, 5);
+  assert.deepEqual(
+    { handled: byName.get('scale')?.handled, has_data: byName.get('scale')?.has_data },
+    { handled: true, has_data: true }
+  );
+  assert.ok(byName.get('scale')?.detail.includes('measurements_info_16 (387 records)'));
+  assert.deepEqual(
+    { handled: byName.get('girth')?.handled, has_data: byName.get('girth')?.has_data },
+    { handled: false, has_data: false }
+  );
+  assert.equal(byName.get('stepCount')?.has_data, true);
+  assert.equal(byName.get('treadmill')?.has_data, false);
+  assert.deepEqual(
+    { handled: byName.get('bodyScan')?.handled, has_data: byName.get('bodyScan')?.has_data },
+    { handled: false, has_data: true }
+  );
+  assert.ok(byName.get('bodyScan')?.detail.includes('morpho_measurements_2 (9 records)'));
+});
+
+test('aggregateMeasurementDevices groups by device identity with counts and latest timestamp', async () => {
+  const { aggregateMeasurementDevices } = await import('../src/services/renpho-api.js');
+
+  const devices = aggregateMeasurementDevices([
+    measurement({ id: 'a', time_stamp: 100, internal_model: 'ES-26M', scale_name: 'Old Scale' }),
+    measurement({ id: 'b', time_stamp: 300, internal_model: 'ES-26M', scale_name: 'Old Scale' }),
+    measurement({ id: 'c', time_stamp: 200, internal_model: 'MORPHO-1', scale_name: 'MorphoScan' })
+  ]);
+
+  assert.deepEqual(
+    devices.map(device => ({
+      internal_model: device.internal_model,
+      measurement_count: device.measurement_count,
+      latest_time_stamp: device.latest_time_stamp
+    })),
+    [
+      { internal_model: 'ES-26M', measurement_count: 2, latest_time_stamp: 300 },
+      { internal_model: 'MORPHO-1', measurement_count: 1, latest_time_stamp: 200 }
+    ]
+  );
+});
+
+test('getSyncDiagnostics surfaces device categories and measurement devices', async () => {
+  const service = createService() as any;
+  const session = {
+    ...createSession(),
+    deviceCategories: [
+      { category: 'scale', handled: true, has_data: true, detail: '2 entries' },
+      { category: 'bodyScan', handled: false, has_data: true, detail: '1 entries' },
+      { category: 'girth', handled: false, has_data: false, detail: '0' }
+    ]
+  };
+  service.authenticate = async () => session;
+  service.getFamilyMembers = async () => [];
+  service.getAssociatedMeasurements = async () => [
+    measurement({ id: 'a', time_stamp: 100, user_id: 'user-1', scale_user_id: 'scale-1', internal_model: 'ES-26M' })
+  ];
+
+  const diagnostics = await service.getSyncDiagnostics(7);
+
+  assert.equal(diagnostics.device_categories.length, 3);
+  assert.deepEqual(
+    diagnostics.unhandled_device_categories_with_data.map((category: any) => category.category),
+    ['bodyScan']
+  );
+  assert.deepEqual(
+    diagnostics.measurement_devices.map((device: any) => device.internal_model),
+    ['ES-26M']
+  );
+});
+
+test('getMeasurements fails with a diagnostics pointer when no scale tables exist', async () => {
+  const service = createService() as any;
+  service.authenticate = async () => ({
+    ...createSession(),
+    scaleTables: [],
+    scaleUserIds: []
+  });
+
+  await assert.rejects(
+    () => service.getMeasurements(undefined, undefined, 10),
+    /No scale devices found.*get_sync_diagnostics/
+  );
+});
