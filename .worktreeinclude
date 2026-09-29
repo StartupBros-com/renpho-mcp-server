@@ -1,0 +1,4 @@
+# Copy only this project's gitignored environment files into new worktrees.
+# Root anchoring avoids matching env files inside existing nested worktrees.
+/.env
+/.env.*
