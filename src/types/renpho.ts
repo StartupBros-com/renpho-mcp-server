@@ -74,12 +74,6 @@ export interface RenphoScaleTable {
   count: number;
 }
 
-export interface RenphoSession {
-  session_key: string;
-  user: RenphoUser;
-  scale_users: RenphoScaleUser[];
-}
-
 export interface RenphoWeightTrend {
   period: string;
   start_weight: number;
