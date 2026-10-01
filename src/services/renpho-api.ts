@@ -17,6 +17,67 @@ const ENCRYPTION_SECRET = "ed*wijdi$h6fe3ew";
 const DEFAULT_PAGE_SIZE = 200;
 const MAX_MEASUREMENT_SCAN = 1000;
 
+// Only numerical body-composition metrics belong in the public measurement.
+// Never copy report IDs, demographics, or third-party synchronization/auth data.
+const BODY_COMPOSITION_FIELDS = new Set([
+  "z20Body",
+  "z20HandL",
+  "z20HandR",
+  "z20FootL",
+  "z20FootR",
+  "z100Body",
+  "z100HandL",
+  "z100HandR",
+  "z100FootL",
+  "z100FootR",
+  "smmMass",
+  "smi",
+  "bodyScore",
+  "bodyType",
+  "weightControl",
+  "whr",
+  "obesityDegree",
+  ...["la", "ra", "ll", "rl", "t"].flatMap((segment) =>
+    [
+      "BodyFatMass",
+      "BodyFatStd",
+      "BodyFatPct",
+      "Muscle",
+      "MuscleMass",
+      "MuscleStd",
+    ].map((metric) => `${segment}${metric}`),
+  ),
+]);
+
+// Tokenize strings before numbers so digits inside JSON strings stay untouched.
+// Keep unsafe integer literals as decimal strings before JSON.parse can round them.
+export function parseRenphoJson<T>(raw: string): T {
+  return JSON.parse(
+    raw.replace(
+      /"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+      (token) =>
+        /^-?\d+$/.test(token) && !Number.isSafeInteger(Number(token))
+          ? JSON.stringify(token)
+          : token,
+    ),
+  ) as T;
+}
+
+export function serializeRenphoRequest(body: Record<string, unknown>): string {
+  const serialized = JSON.stringify(body);
+  if (!Array.isArray(body.userIds)) return serialized;
+  const ids = body.userIds.map((id: unknown) => {
+    if (typeof id !== "string" || !/^\d+$/.test(id)) {
+      throw new Error("RENPHO user IDs must be exact decimal strings");
+    }
+    return BigInt(id).toString();
+  });
+  return serialized.replace(
+    /"userIds":\[[^\]]*\]/,
+    `"userIds":[${ids.join(",")}]`,
+  );
+}
+
 interface CachedSession {
   token: string;
   userId: string;
@@ -200,24 +261,6 @@ export class RenphoApiService {
     return decrypted;
   }
 
-  // Extract large integer IDs as strings to avoid JavaScript precision loss
-  private extractIdAsString(json: string, key: string): string | null {
-    const regex = new RegExp(`"${key}":(\\d+)`);
-    const match = json.match(regex);
-    return match ? match[1] : null;
-  }
-
-  private extractIdsAsStrings(json: string, key: string): string[] {
-    const regex = new RegExp(`"${key}":(\\d+)`, "g");
-    return Array.from(json.matchAll(regex), (match) => match[1]);
-  }
-
-  // Extract all userIds arrays as string arrays to avoid precision loss
-  private extractUserIdGroupsAsStrings(json: string): string[][] {
-    const matches = json.matchAll(/"userIds":\[(\d+(?:,\d+)*)\]/g);
-    return Array.from(matches, (match) => match[1].split(","));
-  }
-
   private unique<T>(items: T[]): T[] {
     return [...new Set(items)];
   }
@@ -247,7 +290,7 @@ export class RenphoApiService {
         body: JSON.stringify({
           encryptData: emptyBody
             ? this.encryptEmptyBytes()
-            : this.encryptAES(JSON.stringify(requestBody ?? {})),
+            : this.encryptAES(serializeRenphoRequest(requestBody ?? {})),
         }),
       });
     } catch (networkError) {
@@ -270,9 +313,7 @@ export class RenphoApiService {
     }
 
     if (responseJson.code !== 101) {
-      throw new Error(
-        `API call failed for ${path}: code=${responseJson.code}, msg=${responseJson.msg}, full=${JSON.stringify(responseJson)}`,
-      );
+      throw new Error(`API call failed for ${path}: code=${responseJson.code}`);
     }
 
     if (!responseJson.data) {
@@ -294,7 +335,7 @@ export class RenphoApiService {
       requestBody,
       emptyBody,
     );
-    return JSON.parse(rawResponse) as T;
+    return parseRenphoJson<T>(rawResponse);
   }
 
   private async authenticate(): Promise<CachedSession> {
@@ -338,12 +379,13 @@ export class RenphoApiService {
     }
 
     const rawLoginData = this.decryptAES(loginJson.data);
-    const userData = JSON.parse(rawLoginData) as { login: Record<string, any> };
+    const userData = parseRenphoJson<{ login: Record<string, any> }>(
+      rawLoginData,
+    );
     const login = userData.login;
 
     // Extract user ID as string to preserve precision for large integers
-    const userId =
-      this.extractIdAsString(rawLoginData, "id") || String(login.id);
+    const userId = String(login.id);
 
     const temporarySession: CachedSession = {
       token: login.token,
@@ -378,19 +420,16 @@ export class RenphoApiService {
       null,
       true,
     );
-    const deviceData = JSON.parse(rawDeviceData) as DeviceInfo;
-    const extractedUserIdGroups =
-      this.extractUserIdGroupsAsStrings(rawDeviceData);
+    const deviceData = parseRenphoJson<DeviceInfo>(rawDeviceData);
 
     // An account can have device data only in categories this server does not
     // read yet, so an empty `scale` list must not fail the whole session —
     // sync diagnostics still need to run to show where the data lives.
     const scaleTables: RenphoScaleTable[] = (deviceData.scale || []).map(
-      (scaleInfo, index) => ({
+      (scaleInfo) => ({
         table_name: scaleInfo.tableName,
         count: scaleInfo.count,
-        user_ids:
-          extractedUserIdGroups[index] || (scaleInfo.userIds || []).map(String),
+        user_ids: (scaleInfo.userIds || []).map(String),
       }),
     );
 
@@ -472,22 +511,64 @@ export class RenphoApiService {
       },
     );
 
-    const parsed = JSON.parse(rawResponse) as Array<Record<string, any>>;
-    const ids = this.extractIdsAsStrings(rawResponse, "id");
-    const boundUserIds = this.extractIdsAsStrings(rawResponse, "bUserId");
-    const scaleUserIds = this.extractIdsAsStrings(rawResponse, "subUserId");
+    return parseRenphoJson<Array<Record<string, any>>>(rawResponse);
+  }
 
-    return parsed.map((entry, index) => ({
-      ...entry,
-      __idString:
-        ids[index] || (entry.id != null ? String(entry.id) : undefined),
-      __bUserIdString:
-        boundUserIds[index] ||
-        (entry.bUserId != null ? String(entry.bUserId) : undefined),
-      __subUserIdString:
-        scaleUserIds[index] ||
-        (entry.subUserId != null ? String(entry.subUserId) : undefined),
-    }));
+  private async fetchBodyCompositionMeasurements(
+    session: CachedSession,
+    table: RenphoScaleTable,
+    userIds: string[],
+  ): Promise<Array<Record<string, any>>> {
+    const collected: Array<Record<string, any>> = [];
+    // The classic table count is not the MorphoScan count. Scan independently;
+    // do not assume a sort order or stop early based on timestamps.
+    for (let pageNum = 1; collected.length < MAX_MEASUREMENT_SCAN; pageNum++) {
+      const raw = await this.postEncryptedRaw(
+        "RenphoHealth/scale/queryBodyCompositionMeasureData",
+        session,
+        {
+          userIds,
+          pageSize: "100",
+          tableName: table.table_name,
+          pageNum: String(pageNum),
+        },
+      );
+      const page = parseRenphoJson<unknown>(raw);
+      if (!Array.isArray(page)) {
+        throw new Error(
+          "Unexpected body composition measurement response (expected array)",
+        );
+      }
+      collected.push(
+        ...page.map((entry) => ({
+          ...entry,
+          __measurementSource: "eightElectrodeWeight",
+        })),
+      );
+      if (page.length < 100) break;
+    }
+    return collected.slice(0, MAX_MEASUREMENT_SCAN);
+  }
+
+  private async fetchCombinedMeasurementsForTable(
+    session: CachedSession,
+    table: RenphoScaleTable,
+    userIds: string[],
+    limit: number,
+    lastAt?: number,
+  ): Promise<Array<Record<string, any>>> {
+    const [classic, bodyComposition] = await Promise.all([
+      this.fetchMeasurementsForTable(session, table, userIds, limit, lastAt),
+      this.fetchBodyCompositionMeasurements(session, table, userIds),
+    ]);
+    // Put advanced records first so duplicate IDs retain their richer fields.
+    return [
+      ...bodyComposition,
+      ...classic.map((entry) => ({
+        ...entry,
+        __measurementSource: "fourElectrodeWeight",
+      })),
+    ];
   }
 
   private async fetchMeasurementsForTable(
@@ -557,6 +638,20 @@ export class RenphoApiService {
   private mapMeasurement(m: Record<string, any>): RenphoMeasurement {
     return {
       id: m.__idString || String(m.id),
+      measurement_source: m.__measurementSource,
+      device_type: m.deviceType,
+      display_module_type: m.displayModuleType,
+      // Preserve advanced fields under their official API names, without
+      // guessing units or flattening segmental measurements into legacy fields.
+      body_composition:
+        m.__measurementSource === "eightElectrodeWeight"
+          ? Object.fromEntries(
+              Object.entries(m).filter(
+                ([key, value]) =>
+                  BODY_COMPOSITION_FIELDS.has(key) && typeof value === "number",
+              ),
+            )
+          : undefined,
       time_stamp: Number(m.timeStamp),
       weight: m.weight,
       bmi: m.bmi,
@@ -644,7 +739,7 @@ export class RenphoApiService {
     const perTableLimit = Math.max(limit, 50);
     const rawResults = await Promise.all(
       session.scaleTables.map((scaleTable) =>
-        this.fetchMeasurementsForTable(
+        this.fetchCombinedMeasurementsForTable(
           session,
           scaleTable,
           scaleTable.user_ids,
@@ -662,10 +757,6 @@ export class RenphoApiService {
       measurements = measurements.filter(
         (measurement) => measurement.time_stamp >= lastAt,
       );
-    }
-
-    if (measurements.length > limit) {
-      measurements = measurements.slice(0, limit);
     }
 
     this.measurementCache.set(cacheKey, measurements);
@@ -711,7 +802,7 @@ export class RenphoApiService {
 
     const rawResults = await Promise.all(
       tablesToQuery.map((scaleTable) =>
-        this.fetchMeasurementsForTable(
+        this.fetchCombinedMeasurementsForTable(
           session,
           scaleTable,
           [userId],
