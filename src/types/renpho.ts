@@ -18,6 +18,10 @@ export interface RenphoUser {
 }
 
 export interface RenphoMeasurement {
+  measurement_source?: "fourElectrodeWeight" | "eightElectrodeWeight";
+  device_type?: string;
+  display_module_type?: number;
+  body_composition?: Record<string, unknown>;
   id: string;
   time_stamp: number;
   weight: number;

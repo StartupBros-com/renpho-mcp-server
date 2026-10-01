@@ -245,3 +245,151 @@ test('getMeasurements fails with a diagnostics pointer when no scale tables exis
     /No scale devices found.*get_sync_diagnostics/
   );
 });
+
+test("lossless JSON preserves sparse, nested and whitespace-separated IDs", async () => {
+  const { parseRenphoJson, serializeRenphoRequest } =
+    await import("../src/services/renpho-api.js");
+  const rows = parseRenphoJson<any[]>(
+    '[{"id": 9223372036854775806,"weight":73.25},{"id":"42","subUserId": 9223372036854775806,"nested":{"id": 5919278420902642176}}]',
+  );
+  assert.equal(rows[0].id, "9223372036854775806");
+  assert.equal(rows[1].subUserId, "9223372036854775806");
+  assert.equal(rows[1].nested.id, "5919278420902642176");
+  assert.equal(rows[0].weight, 73.25);
+  assert.equal(
+    serializeRenphoRequest({
+      userIds: ["9223372036854775806"],
+      pageSize: "100",
+    }),
+    '{"userIds":[9223372036854775806],"pageSize":"100"}',
+  );
+  assert.throws(
+    () => serializeRenphoRequest({ userIds: [9223372036854775806] }),
+    /exact decimal/,
+  );
+});
+
+test("MorphoScan pages independently of classic counts and preserves advanced fields", async () => {
+  const service = createService() as any;
+  const calls: any[] = [];
+  service.postEncryptedRaw = async (
+    path: string,
+    _session: unknown,
+    body: any,
+  ) => {
+    calls.push({ path, body });
+    if (body.pageNum === "1")
+      return JSON.stringify(
+        Array.from({ length: 100 }, (_, i) => ({
+          id: String(i),
+          timeStamp: i,
+          weight: 80,
+        })),
+      );
+    return '[{"id":9223372036854775806,"bUserId":9223372036854775806,"timeStamp":200,"weight":73.25,"deviceType":"00053","smmMass":35,"z20HandL":123}]';
+  };
+  const rows = await service.fetchBodyCompositionMeasurements(
+    createSession(),
+    { table_name: "measurements_info_19", count: 0 },
+    ["9223372036854775806"],
+  );
+  assert.equal(rows.length, 101);
+  assert.deepEqual(calls[0], {
+    path: "RenphoHealth/scale/queryBodyCompositionMeasureData",
+    body: {
+      userIds: ["9223372036854775806"],
+      pageSize: "100",
+      tableName: "measurements_info_19",
+      pageNum: "1",
+    },
+  });
+  assert.equal(calls[1].body.pageNum, "2");
+  const m = service.mapMeasurement(rows[100]);
+  assert.equal(m.id, "9223372036854775806");
+  assert.equal(m.user_id, "9223372036854775806");
+  assert.equal(m.device_type, "00053");
+  assert.equal(m.body_composition.z20HandL, 123);
+  assert.equal(m.measurement_source, "eightElectrodeWeight");
+});
+
+test("combined history keeps richer duplicate and sorts across both devices", async () => {
+  const service = createService() as any;
+  const session = createSession();
+  service.authenticate = async () => session;
+  service.fetchMeasurementsForTable = async () => [
+    { id: "duplicate", timeStamp: 200, weight: 85 },
+    { id: "classic", timeStamp: 300, weight: 84 },
+  ];
+  service.fetchBodyCompositionMeasurements = async () => [
+    {
+      id: "duplicate",
+      timeStamp: 200,
+      weight: 85,
+      smmMass: 35,
+      __measurementSource: "eightElectrodeWeight",
+    },
+    {
+      id: "morpho",
+      timeStamp: 400,
+      weight: 83,
+      __measurementSource: "eightElectrodeWeight",
+    },
+  ];
+  const rows = await service.getMeasurements("scale-1", 250, 10);
+  assert.deepEqual(
+    rows.map((m: any) => m.id),
+    ["morpho", "classic"],
+  );
+  const all = await service.getMeasurements("scale-1", undefined, 10);
+  assert.equal(
+    all.find((m: any) => m.id === "duplicate").body_composition.smmMass,
+    35,
+  );
+});
+
+test("latest chooses newest current-user measurement across both histories", async () => {
+  const service = createService() as any;
+  service.authenticate = async () => createSession();
+  service.fetchMeasurementsForTable = async () => [
+    { id: "classic", timeStamp: 100, weight: 80, bUserId: "user-1" },
+  ];
+  service.fetchBodyCompositionMeasurements = async () => [
+    {
+      id: "morpho",
+      timeStamp: 200,
+      weight: 79,
+      bUserId: "user-1",
+      __measurementSource: "eightElectrodeWeight",
+    },
+  ];
+  const latest = await service.getLatestMeasurement();
+  assert.equal(latest.id, "morpho");
+  assert.equal(latest.measurement_source, "eightElectrodeWeight");
+});
+
+test("unexpected MorphoScan response fails explicitly", async () => {
+  const service = createService() as any;
+  service.postEncryptedRaw = async () => '{"list":[]}';
+  await assert.rejects(
+    () =>
+      service.fetchBodyCompositionMeasurements(
+        createSession(),
+        { table_name: "table_a" },
+        ["1"],
+      ),
+    /expected array/,
+  );
+});
+
+
+test('advanced output excludes auth, synchronization, and demographic fields', async () => {
+  const service = createService() as any;
+  const { formatMeasurement } = await import('../src/utils/formatting.js');
+  const mapped = service.mapMeasurement({id:'1',timeStamp:1,weight:85,__measurementSource:'eightElectrodeWeight', deviceType:'00053', smmMass:35, z20Body:123, fitBitAuth:'do-not-output', birthday:'private', reportId:'private', appleHealthAuth:'private'});
+  assert.deepEqual(mapped.body_composition, {smmMass:35,z20Body:123});
+  const formatted = formatMeasurement(mapped);
+  assert.ok(formatted.includes('smmMass: 35'));
+  assert.ok(formatted.includes('eightElectrodeWeight'));
+  assert.ok(!formatted.includes('do-not-output'));
+  assert.ok(!formatted.includes('private'));
+});
