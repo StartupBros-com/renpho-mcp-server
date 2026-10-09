@@ -227,6 +227,26 @@ export class RenphoApiService {
     this.measurementCache.clear();
   }
 
+  private async parseApiResponse<T>(response: Response, path: string): Promise<T> {
+    try {
+      return (await response.json()) as T;
+    } catch {
+      // Native parser errors can include response data. Keep only safe context.
+      throw new Error(
+        `Failed to parse API response from ${path}, status: ${response.status}`,
+      );
+    }
+  }
+
+  private parseDecryptedResponse<T>(rawResponse: string, path: string): T {
+    try {
+      return JSON.parse(rawResponse) as T;
+    } catch {
+      // Do not retain the parser error as a cause: it can contain private data.
+      throw new Error(`Failed to parse decrypted API response from ${path}`);
+    }
+  }
+
   private async postEncryptedRaw(
     path: string,
     session: CachedSession,
@@ -256,18 +276,11 @@ export class RenphoApiService {
       );
     }
 
-    let responseJson: { code: number; msg?: string; data?: string };
-    try {
-      responseJson = (await response.json()) as {
-        code: number;
-        msg?: string;
-        data?: string;
-      };
-    } catch (parseError) {
-      throw new Error(
-        `Failed to parse API response from ${path}: ${(parseError as Error).message}, status: ${response.status}`,
-      );
-    }
+    const responseJson = await this.parseApiResponse<{
+      code: number;
+      msg?: string;
+      data?: string;
+    }>(response, path);
 
     if (responseJson.code !== 101) {
       throw new Error(
@@ -294,7 +307,7 @@ export class RenphoApiService {
       requestBody,
       emptyBody,
     );
-    return JSON.parse(rawResponse) as T;
+    return this.parseDecryptedResponse<T>(rawResponse, path);
   }
 
   private async authenticate(): Promise<CachedSession> {
@@ -327,18 +340,21 @@ export class RenphoApiService {
       },
     );
 
-    const loginJson = (await loginResponse.json()) as {
+    const loginJson = await this.parseApiResponse<{
       code: number;
       msg: string;
       data: string;
-    };
+    }>(loginResponse, "renpho-aggregation/user/login");
 
     if (loginJson.code !== 101) {
       throw new Error(`Authentication failed: ${loginJson.msg}`);
     }
 
     const rawLoginData = this.decryptAES(loginJson.data);
-    const userData = JSON.parse(rawLoginData) as { login: Record<string, any> };
+    const userData = this.parseDecryptedResponse<{ login: Record<string, any> }>(
+      rawLoginData,
+      "renpho-aggregation/user/login",
+    );
     const login = userData.login;
 
     // Extract user ID as string to preserve precision for large integers
@@ -378,7 +394,10 @@ export class RenphoApiService {
       null,
       true,
     );
-    const deviceData = JSON.parse(rawDeviceData) as DeviceInfo;
+    const deviceData = this.parseDecryptedResponse<DeviceInfo>(
+      rawDeviceData,
+      "renpho-aggregation/device/count",
+    );
     const extractedUserIdGroups =
       this.extractUserIdGroupsAsStrings(rawDeviceData);
 
@@ -472,7 +491,10 @@ export class RenphoApiService {
       },
     );
 
-    const parsed = JSON.parse(rawResponse) as Array<Record<string, any>>;
+    const parsed = this.parseDecryptedResponse<Array<Record<string, any>>>(
+      rawResponse,
+      "RenphoHealth/scale/queryAllMeasureDataList",
+    );
     const ids = this.extractIdsAsStrings(rawResponse, "id");
     const boundUserIds = this.extractIdsAsStrings(rawResponse, "bUserId");
     const scaleUserIds = this.extractIdsAsStrings(rawResponse, "subUserId");
