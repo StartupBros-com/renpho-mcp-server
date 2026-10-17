@@ -270,50 +270,86 @@ export class RenphoApiService {
     this.measurementCache.clear();
   }
 
+  private safeApiCode(code: unknown): number | "invalid" {
+    return typeof code === "number" && Number.isSafeInteger(code)
+      ? code
+      : "invalid";
+  }
+
+  private async parseApiResponse<T>(
+    response: Response,
+    path: string,
+  ): Promise<T> {
+    try {
+      const parsed: unknown = await response.json();
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        throw new Error("Expected API response object");
+      }
+      return parsed as T;
+    } catch {
+      // Native parser errors can include response data. Keep only safe context.
+      throw new Error(
+        `Failed to parse API response from ${path}, status: ${response.status}`,
+      );
+    }
+  }
+
+  private parseDecryptedResponse<T>(rawResponse: string, path: string): T {
+    try {
+      return parseRenphoJson<T>(rawResponse);
+    } catch {
+      // Do not retain the parser error as a cause: it can contain private data.
+      throw new Error(`Failed to parse decrypted API response from ${path}`);
+    }
+  }
+
+  private async fetchApiResponse(
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    try {
+      return await fetch(`${API_BASE}/${path}`, init);
+    } catch {
+      throw new Error(`Network error calling ${path}`);
+    }
+  }
+
   private async postEncryptedRaw(
     path: string,
     session: CachedSession,
     requestBody: Record<string, unknown> | null,
     emptyBody: boolean = false,
   ): Promise<string> {
-    let response: Response;
-    try {
-      response = await fetch(`${API_BASE}/${path}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          token: session.token,
-          userId: session.userId,
-          appVersion: "7.0.0",
-          platform: "android",
-        },
-        body: JSON.stringify({
-          encryptData: emptyBody
-            ? this.encryptEmptyBytes()
-            : this.encryptAES(serializeRenphoRequest(requestBody ?? {})),
-        }),
-      });
-    } catch (networkError) {
-      throw new Error(
-        `Network error calling ${path}: ${(networkError as Error).message}`,
-      );
-    }
+    const response = await this.fetchApiResponse(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        token: session.token,
+        userId: session.userId,
+        appVersion: "7.0.0",
+        platform: "android",
+      },
+      body: JSON.stringify({
+        encryptData: emptyBody
+          ? this.encryptEmptyBytes()
+          : this.encryptAES(serializeRenphoRequest(requestBody ?? {})),
+      }),
+    });
 
-    let responseJson: { code: number; msg?: string; data?: string };
-    try {
-      responseJson = (await response.json()) as {
-        code: number;
-        msg?: string;
-        data?: string;
-      };
-    } catch (parseError) {
-      throw new Error(
-        `Failed to parse API response from ${path}: ${(parseError as Error).message}, status: ${response.status}`,
-      );
-    }
+    const responseJson = await this.parseApiResponse<{
+      code: number;
+      msg?: string;
+      data?: string;
+    }>(response, path);
 
     if (responseJson.code !== 101) {
-      throw new Error(`API call failed for ${path}: code=${responseJson.code}`);
+      throw new Error(
+        `API call failed for ${path}: code=${this.safeApiCode(responseJson.code)}`,
+      );
     }
 
     if (!responseJson.data) {
@@ -335,7 +371,7 @@ export class RenphoApiService {
       requestBody,
       emptyBody,
     );
-    return parseRenphoJson<T>(rawResponse);
+    return this.parseDecryptedResponse<T>(rawResponse, path);
   }
 
   private async authenticate(): Promise<CachedSession> {
@@ -357,8 +393,8 @@ export class RenphoApiService {
       bindingList: { deviceTypes: ["2"] },
     };
 
-    const loginResponse = await fetch(
-      `${API_BASE}/renpho-aggregation/user/login`,
+    const loginResponse = await this.fetchApiResponse(
+      "renpho-aggregation/user/login",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -368,20 +404,22 @@ export class RenphoApiService {
       },
     );
 
-    const loginJson = (await loginResponse.json()) as {
+    const loginJson = await this.parseApiResponse<{
       code: number;
       msg: string;
       data: string;
-    };
+    }>(loginResponse, "renpho-aggregation/user/login");
 
     if (loginJson.code !== 101) {
-      throw new Error(`Authentication failed: ${loginJson.msg}`);
+      throw new Error(
+        `Authentication failed: code=${this.safeApiCode(loginJson.code)}`,
+      );
     }
 
     const rawLoginData = this.decryptAES(loginJson.data);
-    const userData = parseRenphoJson<{ login: Record<string, any> }>(
-      rawLoginData,
-    );
+    const userData = this.parseDecryptedResponse<{
+      login: Record<string, any>;
+    }>(rawLoginData, "renpho-aggregation/user/login");
     const login = userData.login;
 
     // Extract user ID as string to preserve precision for large integers
@@ -420,7 +458,10 @@ export class RenphoApiService {
       null,
       true,
     );
-    const deviceData = parseRenphoJson<DeviceInfo>(rawDeviceData);
+    const deviceData = this.parseDecryptedResponse<DeviceInfo>(
+      rawDeviceData,
+      "renpho-aggregation/device/count",
+    );
 
     // An account can have device data only in categories this server does not
     // read yet, so an empty `scale` list must not fail the whole session —
@@ -511,7 +552,10 @@ export class RenphoApiService {
       },
     );
 
-    return parseRenphoJson<Array<Record<string, any>>>(rawResponse);
+    return this.parseDecryptedResponse<Array<Record<string, any>>>(
+      rawResponse,
+      "RenphoHealth/scale/queryAllMeasureDataList",
+    );
   }
 
   private async fetchBodyCompositionMeasurements(
@@ -533,7 +577,10 @@ export class RenphoApiService {
           pageNum: String(pageNum),
         },
       );
-      const page = parseRenphoJson<unknown>(raw);
+      const page = this.parseDecryptedResponse<unknown>(
+        raw,
+        "RenphoHealth/scale/queryBodyCompositionMeasureData",
+      );
       if (!Array.isArray(page)) {
         throw new Error(
           "Unexpected body composition measurement response (expected array)",
@@ -768,14 +815,11 @@ export class RenphoApiService {
       return directlyBound;
     }
 
-    if (session.scaleUserIds.length === 1) {
-      return measurements.filter(
-        (measurement) => measurement.scale_user_id === session.scaleUserIds[0],
-      );
-    }
-
+    // A shared scale does not override an explicit binding to another account.
     return measurements.filter(
-      (measurement) => measurement.scale_user_id === session.scaleUserIds[0],
+      (measurement) =>
+        measurement.user_id == null &&
+        measurement.scale_user_id === session.scaleUserIds[0],
     );
   }
 
