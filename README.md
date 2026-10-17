@@ -114,6 +114,8 @@ Once configured, ask Claude:
 
 Both classic and body-composition endpoints are queried for each discovered scale table. An empty advanced array preserves classic-only history. An unsupported/non-success response, authentication or network failure, malformed JSON, or unexpected advanced response shape fails the request explicitly; partial classic results are not cached as a successful combined history. No provider-specific unsupported-response codes are assumed.
 
+Duplicate enrichment requires matching ID, timestamp, and weight plus nonempty, matching user and scale-user bindings on every record. Missing or empty bindings prohibit enrichment: those records remain independent and cannot inherit ownership or advanced metrics from another record.
+
 Advanced history is scanned independently of classic counts, up to 1,000 records. An exact 1,000-record history requires an additional empty-page probe; more records fail with an incomplete-history error rather than claiming a safe latest measurement. Numerical advanced fields retain API names without inferred units. Current-user fallback accepts unbound records on the selected scale, never records explicitly bound to another user.
 
 Coverage uses synthetic encrypted responses with mocked fetch, not live provider/account validation. Actual endpoint availability across account types and devices remains unverified.

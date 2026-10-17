@@ -53,20 +53,12 @@ test('getMeasurements prefers measurements already bound to the logged in user',
   const service = createService() as any;
   const session = createSession();
   service.authenticate = async () => session;
-  service.getAssociatedMeasurements = async () => [
-    measurement({
-      id: 'hidden-newer',
-      time_stamp: 200,
-      scale_user_id: 'scale-2',
-      user_id: 'other-user'
-    }),
-    measurement({
-      id: 'visible-current-user',
-      time_stamp: 150,
-      scale_user_id: 'scale-1',
-      user_id: 'user-1'
-    })
-  ];
+  service.fetchCombinedMeasurementsForTable = async (
+    _session: unknown,
+    table: { table_name: string }
+  ) => table.table_name === 'table_a'
+    ? [{ id: 'visible-current-user', timeStamp: 150, weight: 80, subUserId: 'scale-1', bUserId: 'user-1' }]
+    : [{ id: 'hidden-newer', timeStamp: 200, weight: 80, subUserId: 'scale-2', bUserId: 'other-user' }];
 
   const measurements = await service.getMeasurements(undefined, undefined, 10);
 
@@ -82,8 +74,8 @@ test('getMeasurements falls back to the only scale user when measurements are no
     scaleTables: [{ table_name: 'table_a', user_ids: ['scale-1'], count: 2 }]
   };
   service.authenticate = async () => session;
-  service.getAssociatedMeasurements = async () => [
-    measurement({ id: 'pending-bind', time_stamp: 300, scale_user_id: 'scale-1' })
+  service.fetchCombinedMeasurementsForTable = async () => [
+    { id: 'pending-bind', timeStamp: 300, weight: 80, subUserId: 'scale-1' }
   ];
 
   const measurements = await service.getMeasurements(undefined, undefined, 10);

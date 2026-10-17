@@ -89,7 +89,7 @@ test("combined encrypted histories retain exact IDs, metadata and reusable sessi
       ),
     [BODY]: () =>
       encrypted(
-        `[{"id":${ID},"timeStamp":200,"weight":72,"smmMass":31,"z20HandL":123}]`,
+        `[{"id":${ID},"bUserId":${ID},"subUserId":${ID},"timeStamp":200,"weight":72,"smmMass":31,"z20HandL":123}]`,
       ),
   });
   const rows = await service.getMeasurements();
@@ -111,6 +111,72 @@ test("combined encrypted histories retain exact IDs, metadata and reusable sessi
     assert.ok(!call.raw.includes(`"${ID}"`));
   }
 });
+
+for (const reverse of [false, true]) {
+  for (const binding of ["bUserId", "subUserId"] as const) {
+    for (const value of [undefined, null, ""]) {
+      test(`incomplete ${binding}=${String(value)} never enriches classic identity, reverse=${reverse}`, async (t) => {
+        const tables = ["classic_table", "advanced_table"];
+        if (reverse) tables.reverse();
+        const advanced = {
+          id: ID,
+          bUserId: ID,
+          subUserId: ID,
+          timeStamp: 200,
+          weight: 72,
+          smmMass: 31,
+          [binding]: value,
+        };
+        const { service, calls } = fixture(t, {
+          [DEVICES]: () =>
+            encrypted(
+              JSON.stringify({
+                scale: tables.map((tableName) => ({
+                  tableName,
+                  userIds: [ID],
+                  count: 1,
+                })),
+              }),
+            ),
+          [CLASSIC]: () =>
+            encrypted(
+              JSON.parse(calls.at(-1)!.raw).tableName === "classic_table"
+                ? `[{"id":${ID},"bUserId":${ID},"subUserId":${ID},"timeStamp":200,"weight":72,"bmi":24}]`
+                : "[]",
+            ),
+          [BODY]: () =>
+            encrypted(
+              JSON.parse(calls.at(-1)!.raw).tableName === "advanced_table"
+                ? JSON.stringify([advanced])
+                : "[]",
+            ),
+        });
+        const rows = await service.getMeasurements();
+        const classic = rows.find(
+          (row) => row.measurement_source === "fourElectrodeWeight",
+        );
+        assert.ok(classic);
+        assert.equal(classic.user_id, ID);
+        assert.equal(classic.scale_user_id, ID);
+        assert.equal(classic.bmi, 24);
+        assert.equal(classic.body_composition, undefined);
+        const associated = await (service as any).getAssociatedMeasurements(
+          undefined,
+          10,
+        );
+        assert.equal(associated.length, 2);
+        const separate = associated.find(
+          (row: any) => row.measurement_source === "eightElectrodeWeight",
+        );
+        assert.equal(separate.body_composition.smmMass, 31);
+        assert.equal(
+          separate[binding === "bUserId" ? "user_id" : "scale_user_id"],
+          value ?? undefined,
+        );
+      });
+    }
+  }
+}
 
 for (const path of [LOGIN, DEVICES, BODY]) {
   for (const code of [500, CANARY]) {

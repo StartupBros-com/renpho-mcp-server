@@ -766,12 +766,14 @@ export class RenphoApiService {
           new Set(group.map((m) => m[key]).filter((value) => value != null))
             .size > 1,
       );
-      // A sparse record cannot resolve contradictory bindings. Keep every
-      // record in ambiguous groups rather than assigning its data to a user.
+      // Enrichment requires complete, consistent ownership on every record.
+      // Missing bindings cannot inherit another record's identity or metrics.
       if (
         conflictingBindings ||
         group.some(
           (m) =>
+            !m.user_id ||
+            !m.scale_user_id ||
             !Number.isFinite(m.time_stamp) ||
             !Number.isFinite(m.weight) ||
             !m.id ||
@@ -826,9 +828,10 @@ export class RenphoApiService {
   private async getAssociatedMeasurements(
     lastAt?: number,
     limit: number = 100,
+    currentUserOnly: boolean = false,
   ): Promise<RenphoMeasurement[]> {
     const session = await this.authenticate();
-    const cacheKey = `associated-measurements-${lastAt || "all"}-${limit}`;
+    const cacheKey = `associated-measurements-${lastAt || "all"}-${limit}-${currentUserOnly}`;
     const cached = this.measurementCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -857,6 +860,14 @@ export class RenphoApiService {
       );
     }
 
+    if (currentUserOnly) {
+      measurements = this.selectMeasurementsForCurrentUser(
+        measurements,
+        session,
+      );
+    }
+    measurements = measurements.slice(0, limit);
+
     this.measurementCache.set(cacheKey, measurements);
     return measurements;
   }
@@ -878,12 +889,9 @@ export class RenphoApiService {
       const associatedMeasurements = await this.getAssociatedMeasurements(
         lastAt,
         Math.max(limit, 200),
+        true,
       );
-      const selected = this.selectMeasurementsForCurrentUser(
-        associatedMeasurements,
-        session,
-      );
-      return selected.slice(0, limit);
+      return associatedMeasurements.slice(0, limit);
     }
 
     const cacheKey = `measurements-${userId}-${lastAt || "all"}-${limit}`;

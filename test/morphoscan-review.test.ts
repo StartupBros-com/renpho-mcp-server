@@ -70,7 +70,7 @@ for (const reverse of [false, true]) {
     assert.equal(latest.user_id, "1");
   });
 
-  test(`sparse advanced duplicate preserves classic bindings, reverse=${reverse}`, async () => {
+  test(`sparse advanced duplicate cannot inherit classic bindings, reverse=${reverse}`, async () => {
     const service = serviceWithTables(reverse);
     service.fetchBodyCompositionMeasurements = async (
       _session: unknown,
@@ -94,7 +94,16 @@ for (const reverse of [false, true]) {
     assert.equal(latest.user_id, "1");
     assert.equal(latest.scale_user_id, "2");
     assert.equal(latest.bmi, 24);
-    assert.equal(latest.body_composition.smmMass, 31);
+    assert.equal(latest.body_composition, undefined);
+    assert.equal(latest.measurement_source, "fourElectrodeWeight");
+    const associated = await service.getAssociatedMeasurements(undefined, 10);
+    assert.equal(associated.length, 2);
+    const advanced = associated.find(
+      (row: any) => row.measurement_source === "eightElectrodeWeight",
+    );
+    assert.equal(advanced.user_id, undefined);
+    assert.equal(advanced.scale_user_id, undefined);
+    assert.equal(advanced.body_composition.smmMass, 31);
   });
 }
 
