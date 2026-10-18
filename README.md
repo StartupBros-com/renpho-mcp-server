@@ -8,6 +8,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that pr
 - **Weight Trends**: Track changes over customizable time periods (7-365 days)
 - **Health Classifications**: Automatic BMI, body fat, and visceral fat category assessments
 - **Measurement History**: Access historical measurements with date filtering
+- **MorphoScan history integration**: Combines classic and eight-electrode records, retaining numerical advanced metrics under their API field names and merging complementary metadata only for confirmed duplicates
 - **Multi-table discovery**: Scans all linked Renpho scale tables instead of assuming the first discovered scale-user ID is always correct
 - **Sync diagnostics**: Inspect linked scale-user IDs, hidden measurements, and likely delayed Wi-Fi sync situations
 - **Secure**: Credentials stored as environment variables, never logged
@@ -76,17 +77,17 @@ Add to `claude_desktop_config.json`:
 
 ## Available Tools
 
-| Tool | Description |
-|------|-------------|
+| Tool                     | Description                                                        |
+| ------------------------ | ------------------------------------------------------------------ |
 | `get_latest_measurement` | Most recent body composition reading selected for the current user |
-| `get_body_composition` | Detailed composition with health classifications |
-| `get_weight_trend` | Weight change analysis over N days |
-| `get_measurements` | Historical measurements with date filtering |
-| `get_current_user` | User profile information |
-| `get_scale_users` | Linked scale-user IDs and Renpho table mappings |
-| `get_sync_diagnostics` | Debug hidden/delayed measurements across linked scale users |
-| `refresh_data` | Clear caches and force a fresh Renpho session |
-| `health_check` | Verify API connection status |
+| `get_body_composition`   | Detailed composition with health classifications                   |
+| `get_weight_trend`       | Weight change analysis over N days                                 |
+| `get_measurements`       | Historical measurements with date filtering                        |
+| `get_current_user`       | User profile information                                           |
+| `get_scale_users`        | Linked scale-user IDs and Renpho table mappings                    |
+| `get_sync_diagnostics`   | Debug hidden/delayed measurements across linked scale users        |
+| `refresh_data`           | Clear caches and force a fresh Renpho session                      |
+| `health_check`           | Verify API connection status                                       |
 
 ## Example Usage
 
@@ -109,6 +110,20 @@ Once configured, ask Claude:
 - Includes a sync diagnostics tool to surface measurements associated with linked scale users but not currently selected for the logged-in user
 - Caches authentication tokens (50 min) and measurements (5 min) to reduce API calls
 
+### MorphoScan compatibility limits
+
+Both classic and body-composition endpoints are queried for each discovered scale table. An empty advanced array preserves classic-only history. An unsupported/non-success response, authentication or network failure, malformed JSON, or unexpected advanced response shape fails the request explicitly; partial classic results are not cached as a successful combined history. No provider-specific unsupported-response codes are assumed.
+
+Duplicate enrichment requires matching ID, timestamp, and weight plus nonempty, matching user and scale-user bindings on every record. Missing or empty bindings prohibit enrichment: those records remain independent and cannot inherit ownership or advanced metrics from another record.
+
+Advanced history is scanned independently of classic counts, up to 1,000 records. An exact 1,000-record history requires an additional empty-page probe; more records fail with an incomplete-history error rather than claiming a safe latest measurement. Numerical advanced fields retain API names without inferred units. Current-user fallback accepts unbound records on the selected scale, never records explicitly bound to another user.
+
+Coverage uses synthetic encrypted responses with mocked fetch, not live provider/account validation. Actual endpoint availability across account types and devices remains unverified.
+
+### Local verification
+
+`pnpm test` recursively discovers all `.test.ts` files under `test/` without relying on shell or Node-version-specific glob expansion. `pnpm lint` checks the recursive source tree with ESLint's recommended correctness rules, the TypeScript compatibility preset, and additional TypeScript correctness checks. TypeScript checks remain the responsibility of `pnpm exec tsc --noEmit`; lint does not introduce a style or provider-response typing migration.
+
 ## Known Wi-Fi Scale Sync Caveat
 
 Some Wi-Fi scales appear to upload measurements that are not immediately bound to the expected Renpho user until the mobile app performs additional sync logic. This server now helps debug that state with `get_scale_users`, `get_sync_diagnostics`, and `refresh_data`, but the exact server-side binding call used by the app is still being investigated.
@@ -122,6 +137,8 @@ Some Wi-Fi scales appear to upload measurements that are not immediately bound t
 ## Credits
 
 API reverse engineering based on [RenphoGarminSync-CLI](https://github.com/forkerer/RenphoGarminSync-CLI) by forkerer.
+
+MorphoScan eight-electrode support and its pagination/identity regression coverage were contributed by [rubenfsantiago](https://github.com/rubenfsantiago) in [#13](https://github.com/StartupBros-com/renpho-mcp-server/pull/13).
 
 ## License
 

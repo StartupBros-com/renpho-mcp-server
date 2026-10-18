@@ -62,7 +62,11 @@ export function formatMeasurement(m: RenphoMeasurement): string {
     if (m.cardiac_index) text += `- Cardiac Index: ${m.cardiac_index}\n`;
   }
 
+  text += formatAdvancedBodyComposition(m);
   text += `\n**Source:**\n`;
+  if (m.measurement_source)
+    text += `- Measurement Type: ${m.measurement_source}\n`;
+  if (m.device_type) text += `- Device Type: ${m.device_type}\n`;
   if (m.user_id) text += `- Bound User ID: ${m.user_id}\n`;
   if (m.scale_user_id) text += `- Scale User ID: ${m.scale_user_id}\n`;
   if (m.method != null) text += `- Method: ${m.method}\n`;
@@ -70,6 +74,16 @@ export function formatMeasurement(m: RenphoMeasurement): string {
   if (m.is_new != null) text += `- New Flag: ${m.is_new ? "true" : "false"}\n`;
 
   return text;
+}
+
+function formatAdvancedBodyComposition(m: RenphoMeasurement): string {
+  const metrics = Object.entries(m.body_composition || {});
+  if (metrics.length === 0) return "";
+  // Keep official field names: avoid guessing units for impedance/segment data.
+  return (
+    `\n**MorphoScan Body Composition (API field names):**\n` +
+    metrics.map(([key, value]) => `- ${key}: ${value}\n`).join("")
+  );
 }
 
 export function formatBodyComposition(bc: RenphoBodyComposition): string {
@@ -88,6 +102,7 @@ export function formatBodyComposition(bc: RenphoBodyComposition): string {
   text += `| Metabolic Age | ${bc.formatted.metabolic_age} | - |\n`;
   text += `| BMR | ${bc.formatted.bmr} | - |\n`;
 
+  text += formatAdvancedBodyComposition(bc.measurement);
   return text;
 }
 
