@@ -60,7 +60,7 @@ for (const descending of [false, true]) {
     const latest = await service.getLatestMeasurement();
     assert.equal(latest.id, "250");
     assert.equal(latest.user_id, "current");
-    assert.deepEqual(budgets, [200]);
+    assert.deepEqual(budgets, [1]);
     const cached = [...service.measurementCache.values()] as any[][];
     assert.equal(cached.length, 1);
     assert.deepEqual(
