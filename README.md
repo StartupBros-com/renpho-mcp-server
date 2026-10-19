@@ -120,6 +120,14 @@ Advanced history is scanned independently of classic counts, up to 1,000 records
 
 Coverage uses synthetic encrypted responses with mocked fetch, not live provider/account validation. Actual endpoint availability across account types and devices remains unverified.
 
+### Classic current-user pagination
+
+Current-user queries count selected, deduplicated classic records toward the requested limit, rather than stopping after that many associated users' records. Classic pages are read newest first in 200-record pages. Unbound fallback is selected only after direct current-user records have been ruled out within the requested date range.
+
+The scan retains at most 1,000 classic records per table. If selection is still unresolved, it fails explicitly without caching partial results. A whole page that would exceed this budget is rejected, even if some records on it would fit; a short newest page can therefore require one additional page request before rejection. A separate six-page-request ceiling bounds network work even if the provider returns unexpectedly short pages. Reaching page 1 establishes table exhaustion, including an exactly 1,000-record history. An unexpectedly empty inferred page above page 1 fails explicitly.
+
+This retains the existing classic API assumptions: chronological pages and accurate `device/count` metadata. Counts remain cached with the authentication session, so stale counts or provider ordering changes are not resolved by this pagination fix. Use `refresh_data` to refresh cached account state. Different requested limits use separate measurement-cache entries; repeated identical queries reuse their entry. Advanced-history scanning, explicit scale-user queries, and sync-diagnostic limits are unchanged.
+
 ### Local verification
 
 `pnpm test` recursively discovers all `.test.ts` files under `test/` without relying on shell or Node-version-specific glob expansion. `pnpm lint` checks the recursive source tree with ESLint's recommended correctness rules, the TypeScript compatibility preset, and additional TypeScript correctness checks. TypeScript checks remain the responsibility of `pnpm exec tsc --noEmit`; lint does not introduce a style or provider-response typing migration.
