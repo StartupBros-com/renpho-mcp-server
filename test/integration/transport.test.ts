@@ -31,7 +31,12 @@ function fixture(t: TestContext, overrides: Record<string, Reply> = {}) {
     "fixture@example.invalid",
     "fixture-password",
   );
-  const calls: Array<{ path: string; raw: string }> = [];
+  const calls: Array<{
+    path: string;
+    raw: string;
+    method: string | undefined;
+    headers: Headers;
+  }> = [];
   const routes: Record<string, Reply> = {
     [LOGIN]: () =>
       encrypted(
@@ -55,7 +60,12 @@ function fixture(t: TestContext, overrides: Record<string, Reply> = {}) {
         `Unexpected route: ${String(url)}`,
       );
       const raw = decrypt(init?.body);
-      calls.push({ path, raw });
+      calls.push({
+        path,
+        raw,
+        method: init?.method,
+        headers: new Headers(init?.headers),
+      });
       if (path !== LOGIN) {
         assert.equal((init?.headers as Record<string, string>).userId, ID);
         assert.equal(
@@ -79,6 +89,50 @@ function safeError(message: string) {
     assert.equal(error.message, message);
     return true;
   };
+}
+
+test("login sends app headers without changing the encrypted payload and reuses the session", async (t) => {
+  const { service, calls } = fixture(t);
+  const user = await service.getCurrentUser();
+  assert.equal(user.id, ID);
+  assert.deepEqual(await service.getCurrentUser(), user);
+  assert.deepEqual(calls.map(({ path }) => path), [LOGIN, DEVICES]);
+
+  const [login, devices] = calls;
+  assert.equal(login.method, "POST");
+  assert.equal(login.headers.get("Content-Type"), "application/json");
+  assert.equal(login.headers.get("appVersion"), "7.0.0");
+  assert.equal(login.headers.get("platform"), "android");
+  assert.equal(login.headers.get("appVersion"), devices.headers.get("appVersion"));
+  assert.equal(login.headers.get("platform"), devices.headers.get("platform"));
+  assert.equal(login.headers.has("token"), false);
+  assert.equal(login.headers.has("userId"), false);
+  assert.deepEqual(JSON.parse(login.raw), {
+    questionnaire: {},
+    login: {
+      password: "fixture-password",
+      areaCode: "US",
+      appRevision: "7.0.0",
+      cellphoneType: "MCP-Server",
+      systemType: "11",
+      email: "fixture@example.invalid",
+      platform: "android",
+    },
+    bindingList: { deviceTypes: ["2"] },
+  });
+});
+
+for (const code of [-114, 104]) {
+  test(`login preserves safe error code ${code} without exposing provider details`, async (t) => {
+    const { service, calls } = fixture(t, {
+      [LOGIN]: () => Response.json({ code, msg: CANARY, data: CANARY }),
+    });
+    await assert.rejects(
+      () => service.getCurrentUser(),
+      safeError(`Authentication failed: code=${code}`),
+    );
+    assert.deepEqual(calls.map(({ path }) => path), [LOGIN]);
+  });
 }
 
 test("combined encrypted histories retain exact IDs, metadata and reusable session/cache", async (t) => {

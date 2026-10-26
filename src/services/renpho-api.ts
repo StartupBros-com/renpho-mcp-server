@@ -397,7 +397,11 @@ export class RenphoApiService {
       "renpho-aggregation/user/login",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          appVersion: "7.0.0",
+          platform: "android",
+        },
         body: JSON.stringify({
           encryptData: this.encryptAES(JSON.stringify(loginData)),
         }),
