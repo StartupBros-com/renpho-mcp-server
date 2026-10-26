@@ -36,7 +36,7 @@ const renphoApi = new RenphoApiService(config.email, config.password);
 
 const server = new McpServer({
   name: "renpho-mcp-server",
-  version: "1.2.0",
+  version: "1.2.1",
 });
 
 server.tool(
@@ -304,7 +304,7 @@ server.tool(
         content: [
           {
             type: "text" as const,
-            text: `Renpho MCP Server Health Check\n\nStatus: Healthy\nTimestamp: ${new Date().toISOString()}\nAPI Connection: OK\nUser: ${user.email}\nVersion: 1.2.0`,
+            text: `Renpho MCP Server Health Check\n\nStatus: Healthy\nTimestamp: ${new Date().toISOString()}\nAPI Connection: OK\nUser: ${user.email}\nVersion: 1.2.1`,
           },
         ],
       };

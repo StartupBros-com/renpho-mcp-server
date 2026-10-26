@@ -70,7 +70,9 @@ for (const descending of [false, true]) {
   });
 
   for (const count of [251, 1000]) {
-    test(`diagnostics and associated cache stay bounded after ${count} scanned rows, descending=${descending}`, async () => {
+    test(`diagnostics and associated cache stay bounded after ${count} scanned rows, descending=${descending}`, async (t) => {
+      let clock = 1_735_732_800_000;
+      t.mock.method(Date, "now", () => clock);
       const { service, pages, budgets, now } = history(count, descending);
       const diagnostics = await service.getSyncDiagnostics();
       assert.equal(diagnostics.measurement_devices[0].measurement_count, 50);
@@ -89,6 +91,10 @@ for (const descending of [false, true]) {
       const pageCount = pages.length;
       await service.getSyncDiagnostics();
       assert.equal(pages.length, pageCount);
+      // Advancing the relative date cutoff is a distinct query, not a cache hit.
+      clock += 1000;
+      await service.getSyncDiagnostics();
+      assert.equal(pages.length, pageCount * 2);
       // Diagnostic caching must not hide an older current-user row from latest.
       assert.equal(
         (await service.getLatestMeasurement()).id,

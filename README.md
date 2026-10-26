@@ -21,8 +21,10 @@ A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that pr
 
 ## Installation
 
+Releases are distributed as source code on [GitHub](https://github.com/StartupBros-com/renpho-mcp-server/releases), not as an npm package. Install dependencies and build locally. For a pinned release, add `--branch v1.2.1` to the clone command below; omit it to use the latest `main`. See [CHANGELOG.md](CHANGELOG.md) for changes and compatibility limits.
+
 ```bash
-git clone https://github.com/StartupBros/renpho-mcp-server.git
+git clone https://github.com/StartupBros-com/renpho-mcp-server.git
 cd renpho-mcp-server
 npm install
 npm run build
@@ -39,7 +41,9 @@ RENPHO_PASSWORD=your-password
 
 ### Claude Code
 
-Add to your MCP settings (`~/.claude/settings.json` or project `.claude/settings.json`):
+Add the server to `~/.claude.json` for user-wide configuration, or `.mcp.json` in your client project's root for project-scoped configuration—not `settings.json`. See [Claude Code's MCP documentation](https://code.claude.com/docs/en/mcp).
+
+The example below reads credentials from the environment that launches Claude Code. Set `RENPHO_EMAIL` and `RENPHO_PASSWORD` there; do not commit real credentials in a project-scoped `.mcp.json`.
 
 ```json
 {
@@ -48,8 +52,8 @@ Add to your MCP settings (`~/.claude/settings.json` or project `.claude/settings
       "command": "node",
       "args": ["/path/to/renpho-mcp-server/dist/index.js"],
       "env": {
-        "RENPHO_EMAIL": "your-email@example.com",
-        "RENPHO_PASSWORD": "your-password"
+        "RENPHO_EMAIL": "${RENPHO_EMAIL}",
+        "RENPHO_PASSWORD": "${RENPHO_PASSWORD}"
       }
     }
   }
