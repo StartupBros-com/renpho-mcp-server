@@ -136,13 +136,9 @@ export function formatMeasurementList(
   text += `| Date | Weight | Body Fat | Muscle | BMI | Bound User | Scale User |\n`;
   text += `|------|--------|----------|--------|-----|------------|------------|\n`;
 
-  for (const m of measurements.slice(0, 20)) {
+  for (const m of measurements) {
     const date = formatDate(m.time_stamp).split(",")[0];
     text += `| ${date} | ${m.weight?.toFixed(1) || "-"} kg | ${m.bodyfat?.toFixed(1) || "-"}% | ${m.muscle?.toFixed(1) || "-"}% | ${m.bmi?.toFixed(1) || "-"} | ${m.user_id || "-"} | ${m.scale_user_id || "-"} |\n`;
-  }
-
-  if (measurements.length > 20) {
-    text += `\n...and ${measurements.length - 20} more measurements`;
   }
 
   return text;
