@@ -614,9 +614,17 @@ export class RenphoApiService {
     userIds: string[],
     limit: number,
     lastAt?: number,
+    currentUserOnly: boolean = false,
   ): Promise<Array<Record<string, any>>> {
     const [classic, bodyComposition] = await Promise.all([
-      this.fetchMeasurementsForTable(session, table, userIds, limit, lastAt),
+      this.fetchMeasurementsForTable(
+        session,
+        table,
+        userIds,
+        limit,
+        lastAt,
+        currentUserOnly,
+      ),
       this.fetchBodyCompositionMeasurements(session, table, userIds),
     ]);
     // Source precedence and complementary metadata are merged globally after
@@ -630,13 +638,89 @@ export class RenphoApiService {
     ];
   }
 
-  private async fetchMeasurementsForTable(
+  private async fetchClassicMeasurementsForCurrentUser(
     session: CachedSession,
     table: RenphoScaleTable,
     userIds: string[],
     limit: number,
     lastAt?: number,
   ): Promise<Array<Record<string, any>>> {
+    const pageSize = DEFAULT_PAGE_SIZE;
+    const totalPages = Math.max(
+      1,
+      Math.ceil(Math.max(table.count || 0, 0) / pageSize),
+    );
+    const collected: Array<Record<string, any>> = [];
+    const incomplete = () =>
+      new Error(
+        "Incomplete classic history: current-user selection could not be established within the scan limit",
+      );
+    const maxPageRequests = Math.ceil(MAX_MEASUREMENT_SCAN / pageSize) + 1;
+    let pageRequests = 0;
+
+    // Classic pages are chronological, with the newest page potentially short.
+    // Count selected, deduplicated records, not other users' records, toward the
+    // result limit. Unbound fallback is only safe after ruling out direct rows.
+    for (let pageNum = totalPages; pageNum >= 1; pageNum--) {
+      if (
+        collected.length >= MAX_MEASUREMENT_SCAN ||
+        pageRequests >= maxPageRequests
+      )
+        throw incomplete();
+      pageRequests++;
+      const page = await this.fetchMeasurementPage(
+        session,
+        table.table_name,
+        userIds,
+        pageNum,
+        pageSize,
+      );
+      if (page.length === 0 && pageNum > 1) throw incomplete();
+      if (collected.length + page.length > MAX_MEASUREMENT_SCAN)
+        throw incomplete();
+      collected.push(...page);
+      const current = this.dedupeAndSortMeasurements(
+        collected.map((entry) => this.mapMeasurement(entry)),
+      ).filter(
+        (measurement) =>
+          measurement.user_id === session.userId &&
+          (!lastAt || measurement.time_stamp >= lastAt),
+      );
+      if (current.length >= limit || pageNum === 1) return collected;
+      if (
+        lastAt &&
+        page.every(
+          (entry) =>
+            (typeof entry.timeStamp === "number" ||
+              (typeof entry.timeStamp === "string" &&
+                entry.timeStamp.trim() !== "")) &&
+            Number.isFinite(Number(entry.timeStamp)) &&
+            Number(entry.timeStamp) < lastAt,
+        )
+      ) {
+        return collected;
+      }
+    }
+    return collected;
+  }
+
+  private async fetchMeasurementsForTable(
+    session: CachedSession,
+    table: RenphoScaleTable,
+    userIds: string[],
+    limit: number,
+    lastAt?: number,
+    currentUserOnly: boolean = false,
+  ): Promise<Array<Record<string, any>>> {
+    if (currentUserOnly) {
+      return this.fetchClassicMeasurementsForCurrentUser(
+        session,
+        table,
+        userIds,
+        limit,
+        lastAt,
+      );
+    }
     const pageSize = Math.min(DEFAULT_PAGE_SIZE, Math.max(50, limit));
     const tableCount = Math.max(table.count || 0, 0);
     const totalPages = Math.max(
@@ -841,7 +925,7 @@ export class RenphoApiService {
       return cached;
     }
 
-    const perTableLimit = Math.max(limit, 50);
+    const perTableLimit = currentUserOnly ? limit : Math.max(limit, 50);
     const rawResults = await Promise.all(
       session.scaleTables.map((scaleTable) =>
         this.fetchCombinedMeasurementsForTable(
@@ -850,6 +934,7 @@ export class RenphoApiService {
           scaleTable.user_ids,
           perTableLimit,
           lastAt,
+          currentUserOnly,
         ),
       ),
     );
@@ -892,7 +977,7 @@ export class RenphoApiService {
     if (!userId) {
       const associatedMeasurements = await this.getAssociatedMeasurements(
         lastAt,
-        Math.max(limit, 200),
+        limit,
         true,
       );
       return associatedMeasurements.slice(0, limit);

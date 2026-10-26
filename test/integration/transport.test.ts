@@ -25,7 +25,7 @@ function decrypt(body: unknown): string {
     decipher.final(),
   ]).toString();
 }
-type Reply = () => Response | Promise<Response>;
+type Reply = (raw: string) => Response | Promise<Response>;
 function fixture(t: TestContext, overrides: Record<string, Reply> = {}) {
   const service = new RenphoApiService(
     "fixture@example.invalid",
@@ -73,7 +73,7 @@ function fixture(t: TestContext, overrides: Record<string, Reply> = {}) {
           "fixture-token",
         );
       }
-      return routes[path]();
+      return routes[path](raw);
     },
   );
   return { service, calls };
@@ -135,6 +135,92 @@ for (const code of [-114, 104]) {
   });
 }
 
+for (const recent of [false, true]) {
+  test(`encrypted classic pagination selects current rows behind foreign rows, recent=${recent}`, async (t) => {
+    const count = recent ? 451 : 251;
+    const now = Math.floor(Date.now() / 1000);
+    const rows = Array.from({ length: count }, (_, i) => ({
+      id: String(i),
+      timeStamp: now - count + i,
+      weight: 72,
+      bUserId: i === 0 ? ID : `${ID}1`,
+      subUserId: ID,
+    }));
+    const { service, calls } = fixture(t, {
+      [DEVICES]: () =>
+        encrypted(
+          JSON.stringify({
+            scale: [{ userIds: [ID], count, tableName: "fixture_table" }],
+          }),
+        ),
+      [CLASSIC]: (raw) => {
+        const { pageNum, pageSize } = JSON.parse(raw);
+        return encrypted(
+          JSON.stringify(
+            rows.slice((pageNum - 1) * pageSize, pageNum * pageSize),
+          ),
+        );
+      },
+    });
+    const selected = recent
+      ? await service.getMeasurements(undefined, now - 86400, 100)
+      : [await service.getLatestMeasurement()];
+    assert.deepEqual(
+      selected.map((row) => row?.id),
+      ["0"],
+    );
+    assert.equal(selected[0]?.user_id, ID);
+    assert.deepEqual(
+      calls
+        .filter(({ path }) => path === CLASSIC)
+        .map(({ raw }) => JSON.parse(raw).pageNum),
+      recent ? [3, 2, 1] : [2, 1],
+    );
+  });
+}
+
+test("incomplete classic history rejects valid advanced history without caching partial results", async (t) => {
+  const { service, calls } = fixture(t, {
+    [DEVICES]: () =>
+      encrypted(
+        `{"scale":[{"userIds":[${ID}],"count":1200,"tableName":"fixture_table"}]}`,
+      ),
+    [CLASSIC]: (raw) => {
+      const { pageNum, pageSize } = JSON.parse(raw);
+      return encrypted(
+        JSON.stringify(
+          Array.from({ length: pageSize }, (_, index) => ({
+            id: `classic-${pageNum}-${index}`,
+            timeStamp: (pageNum - 1) * pageSize + index,
+            weight: 72,
+            bUserId: "foreign-user",
+            subUserId: ID,
+          })),
+        ),
+      );
+    },
+    [BODY]: () =>
+      encrypted(
+        `[{"id":${ID},"bUserId":${ID},"subUserId":${ID},"timeStamp":2000,"weight":72,"smmMass":31}]`,
+      ),
+  });
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await assert.rejects(
+      () => service.getLatestMeasurement(),
+      /Incomplete classic history/,
+    );
+    assert.equal((service as any).measurementCache.size, 0);
+    assert.equal(calls.filter(({ path }) => path === BODY).length, attempt);
+  }
+  assert.deepEqual(
+    calls
+      .filter(({ path }) => path === CLASSIC)
+      .map(({ raw }) => JSON.parse(raw).pageNum),
+    [6, 5, 4, 3, 2, 6, 5, 4, 3, 2],
+  );
+});
+
 test("combined encrypted histories retain exact IDs, metadata and reusable session/cache", async (t) => {
   const { service, calls } = fixture(t, {
     [CLASSIC]: () =>
@@ -157,7 +243,11 @@ test("combined encrypted histories retain exact IDs, metadata and reusable sessi
   assert.deepEqual(rows[0].body_composition, { smmMass: 31, z20HandL: 123 });
   assert.deepEqual(await service.getLatestMeasurement(), rows[0]);
   assert.equal((await service.getCurrentUser()).id, ID);
-  assert.equal(calls.length, 4);
+  // Actual result limits have separate cache entries; repeated latest requests
+  // still reuse their bounded entry and the same authenticated session.
+  assert.equal(calls.length, 6);
+  assert.deepEqual(await service.getLatestMeasurement(), rows[0]);
+  assert.equal(calls.length, 6);
   for (const call of calls.filter(
     ({ path }) => path === CLASSIC || path === BODY,
   )) {
