@@ -152,6 +152,10 @@ API reverse engineering based on [RenphoGarminSync-CLI](https://github.com/forke
 
 MorphoScan eight-electrode support and its pagination/identity regression coverage were contributed by [rubenfsantiago](https://github.com/rubenfsantiago) in [#13](https://github.com/StartupBros-com/renpho-mcp-server/pull/13).
 
+---
+
+*Made by [Will Mitchell](https://github.com/StartupBros), who builds with Claude Code every day. The setup is free: [hov-stack](https://github.com/StartupBros-com/hov-stack). If you don't code for a living and want to build with AI, [House of Vibe](https://houseofvibe.ai/?utm_source=github&utm_medium=repo&utm_campaign=renpho-mcp-server) is for you.*
+
 ## License
 
 MIT
