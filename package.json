@@ -20,7 +20,7 @@
     "@modelcontextprotocol/sdk": "^1.15.1",
     "dotenv": "^17.2.0",
     "lru-cache": "^10.4.3",
-    "winston": "^3.17.0",
+    "winston": "^3.19.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
