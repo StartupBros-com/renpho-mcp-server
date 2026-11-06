@@ -17,7 +17,7 @@
     "inspector": "npx @modelcontextprotocol/inspector dist/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.15.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "dotenv": "^17.2.0",
     "lru-cache": "^10.4.3",
     "winston": "^3.19.0",
