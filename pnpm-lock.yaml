@@ -34,7 +34,7 @@ importers:
         specifier: ^6.19.1
         version: 6.21.0(eslint@8.57.1(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3)
       eslint:
-        specifier: ^8.56.0
+        specifier: ^8.57.1
         version: 8.57.1(supports-color@7.2.0)
       prettier:
         specifier: ^3.2.4
