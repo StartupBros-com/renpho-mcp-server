@@ -1,0 +1,8 @@
+# esbuild's install script is not needed: the build is tsc, and tsx gets esbuild's
+# binary from its prebuilt platform package.
+# pnpm 11 reads allowBuilds and fails the install on any build it was not told
+# about; pnpm 10 reads ignoredBuiltDependencies. Keep the two lists equal.
+allowBuilds:
+  esbuild: false
+ignoredBuiltDependencies:
+  - esbuild
