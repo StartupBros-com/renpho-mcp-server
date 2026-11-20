@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.15.1",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.9",
     "lru-cache": "^10.4.3",
     "winston": "^3.19.0",
     "zod": "^4.6.7"
