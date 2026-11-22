@@ -7,11 +7,15 @@ import {
   RenphoSyncDiagnostics,
 } from "../types/renpho.js";
 
+const CALENDAR_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+};
+
 export function formatDate(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+    ...CALENDAR_DATE_OPTIONS,
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -137,7 +141,10 @@ export function formatMeasurementList(
   text += `|------|--------|----------|--------|-----|------------|------------|\n`;
 
   for (const m of measurements) {
-    const date = formatDate(m.time_stamp).split(",")[0];
+    const date = new Date(m.time_stamp * 1000).toLocaleDateString(
+      "en-US",
+      CALENDAR_DATE_OPTIONS,
+    );
     text += `| ${date} | ${m.weight?.toFixed(1) || "-"} kg | ${m.bodyfat?.toFixed(1) || "-"}% | ${m.muscle?.toFixed(1) || "-"}% | ${m.bmi?.toFixed(1) || "-"} | ${m.user_id || "-"} | ${m.scale_user_id || "-"} |\n`;
   }
 
