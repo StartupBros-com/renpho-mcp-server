@@ -39,7 +39,11 @@ for (const count of [0, 1, 20, 21, 100, 500]) {
       .filter((line) => line.startsWith("| "))
       .slice(1);
     const expectedRows = measurements.map((measurement) => {
-      const date = formatDate(measurement.time_stamp).split(",")[0];
+      const date = new Date(measurement.time_stamp * 1000).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
       return `| ${date} | ${measurement.weight.toFixed(1)} kg | 20.0% | 40.0% | 22.0 | ${measurement.user_id} | ${measurement.scale_user_id} |`;
     });
 
@@ -56,3 +60,20 @@ for (const count of [0, 1, 20, 21, 100, 500]) {
     assert.doesNotMatch(text, /more measurements/);
   });
 }
+
+test("history retains the calendar year without the clock around New Year", () => {
+  const before = new Date(2025, 11, 31, 23, 30).getTime() / 1000;
+  const after = new Date(2026, 0, 1, 0, 30).getTime() / 1000;
+  const text = formatMeasurementList([
+    { id: "after", time_stamp: after, weight: 71 },
+    { id: "before", time_stamp: before, weight: 70 },
+  ]);
+  const dates = text.split("\n")
+    .filter((line) => line.startsWith("| "))
+    .slice(1)
+    .map((line) => line.split("|")[1].trim());
+
+  assert.deepEqual(dates, ["Jan 1, 2026", "Dec 31, 2025"]);
+  assert.match(formatDate(before), /Dec 31, 2025.*11:30 PM/);
+  assert.match(formatDate(after), /Jan 1, 2026.*12:30 AM/);
+});
