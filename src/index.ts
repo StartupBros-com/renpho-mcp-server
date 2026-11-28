@@ -296,7 +296,7 @@ server.tool(
 
 server.tool(
   "health_check",
-  "Check the health status of the Renpho MCP server and API connection",
+  "Check authenticated Renpho session availability without independently verifying live API reachability",
   async () => {
     try {
       const user = await renphoApi.getCurrentUser();
@@ -304,7 +304,7 @@ server.tool(
         content: [
           {
             type: "text" as const,
-            text: `Renpho MCP Server Health Check\n\nStatus: Healthy\nTimestamp: ${new Date().toISOString()}\nAPI Connection: OK\nUser: ${user.email}\nVersion: 1.2.1`,
+            text: `Renpho MCP Server Health Check\n\nStatus: Healthy\nTimestamp: ${new Date().toISOString()}\nAPI Connection: Not independently verified (authenticated session available; may be cached)\nUser: ${user.email}\nVersion: 1.2.1`,
           },
         ],
       };
@@ -313,7 +313,7 @@ server.tool(
         content: [
           {
             type: "text" as const,
-            text: `Renpho MCP Server Health Check\n\nStatus: Unhealthy\nTimestamp: ${new Date().toISOString()}\nAPI Connection: Failed\nError: ${(error as Error).message}`,
+            text: `Renpho MCP Server Health Check\n\nStatus: Unhealthy\nTimestamp: ${new Date().toISOString()}\nAPI Connection: Not verified (session check failed)\nError: ${(error as Error).message}`,
           },
         ],
       };
