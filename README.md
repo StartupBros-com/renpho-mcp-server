@@ -91,7 +91,7 @@ Add to `claude_desktop_config.json`:
 | `get_scale_users`        | Linked scale-user IDs and Renpho table mappings                    |
 | `get_sync_diagnostics`   | Debug hidden/delayed measurements across linked scale users        |
 | `refresh_data`           | Clear caches and force a fresh Renpho session                      |
-| `health_check`           | Verify API connection status                                       |
+| `health_check`           | Check session availability (may be cached; not a live API probe) |
 
 ## Example Usage
 
