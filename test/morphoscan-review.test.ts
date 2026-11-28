@@ -1,18 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RenphoApiService } from "../src/services/renpho-api.js";
+import {
+  createOfflineRenphoService,
+  installOfflineFetchGuard,
+} from "./fixtures/offline-service.js";
 
 // Every test uses synthetic fixtures and mocked transport. Any accidental
 // provider request must fail locally rather than authenticating or fetching.
-globalThis.fetch = async () => {
-  throw new Error("Real fetch forbidden in offline tests");
-};
+installOfflineFetchGuard();
 
 function serviceWithTables(reverse = false) {
-  const service = new RenphoApiService(
-    "offline@example.invalid",
-    "offline",
-  ) as any;
+  const service = createOfflineRenphoService() as any;
   const tables = [
     { table_name: "classic_table", user_ids: ["2"], count: 1 },
     { table_name: "advanced_table", user_ids: ["2"], count: 1 },

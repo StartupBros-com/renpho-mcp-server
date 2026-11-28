@@ -1,16 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { RenphoApiService } from "../src/services/renpho-api.js";
+import {
+  createOfflineRenphoService,
+  installOfflineFetchGuard,
+} from "./fixtures/offline-service.js";
 
-globalThis.fetch = async () => {
-  throw new Error("Real fetch forbidden in offline tests");
-};
+installOfflineFetchGuard();
 
 function history(count: number, current: number[], unbound = false) {
-  const service = new RenphoApiService(
-    "offline@example.invalid",
-    "offline",
-  ) as any;
+  const service = createOfflineRenphoService() as any;
   const now = Math.floor(Date.now() / 1000);
   const rows = Array.from({ length: count }, (_, i) => ({
     id: String(i),
@@ -44,6 +42,24 @@ function history(count: number, current: number[], unbound = false) {
   };
   return { service, rows, pages, now };
 }
+
+test("offline fixtures reject fetch and create independent services", async () => {
+  const guard = globalThis.fetch;
+  // Use a sentinel so a regression in the guard cannot hit a real endpoint.
+  globalThis.fetch = async () => {
+    throw new Error("transport sentinel reached");
+  };
+  try {
+    installOfflineFetchGuard();
+    await assert.rejects(
+      () => globalThis.fetch("https://offline.invalid/"),
+      { message: "Real fetch forbidden in offline tests" },
+    );
+  } finally {
+    globalThis.fetch = guard;
+  }
+  assert.notStrictEqual(createOfflineRenphoService(), createOfflineRenphoService());
+});
 
 test("latest finds a classic current-user row behind 250 foreign rows", async () => {
   const { service, pages } = history(251, [0]);
