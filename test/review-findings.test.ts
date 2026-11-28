@@ -1,17 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { RenphoApiService } from "../src/services/renpho-api.js";
+import {
+  createOfflineRenphoService,
+  installOfflineFetchGuard,
+} from "./fixtures/offline-service.js";
 
 // Synthetic pages only: an accidental provider call is a local failure.
-globalThis.fetch = async () => {
-  throw new Error("Real fetch forbidden in offline tests");
-};
+installOfflineFetchGuard();
 
 function history(count: number, descending: boolean) {
-  const service = new RenphoApiService(
-    "offline@example.invalid",
-    "offline",
-  ) as any;
+  const service = createOfflineRenphoService() as any;
   const now = Math.floor(Date.now() / 1000);
   const rows = Array.from({ length: count }, (_, i) => ({
     id: String(i),
